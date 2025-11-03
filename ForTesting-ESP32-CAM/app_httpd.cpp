@@ -52,7 +52,7 @@ int led_duty = 0;
 bool isStreaming = false;
 
 #endif
-
+// Helper Structure to send jpegs over in small chunks
 typedef struct
 {
     httpd_req_t *req;
@@ -66,7 +66,7 @@ static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %
 
 httpd_handle_t stream_httpd = NULL;
 httpd_handle_t camera_httpd = NULL;
-
+// Smoothing out data and getting rid of noise
 typedef struct
 {
     size_t size;  //number of values used for filtering
@@ -77,7 +77,7 @@ typedef struct
 } ra_filter_t;
 
 static ra_filter_t ra_filter;
-
+// Initializes a running average filter structure with a given sample size
 static ra_filter_t *ra_filter_init(ra_filter_t *filter, size_t sample_size)
 {
     memset(filter, 0, sizeof(ra_filter_t));
@@ -92,7 +92,7 @@ static ra_filter_t *ra_filter_init(ra_filter_t *filter, size_t sample_size)
     filter->size = sample_size;
     return filter;
 }
-
+// Updates the running average filter with a new value and returns the current average
 #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
 static int ra_filter_run(ra_filter_t *filter, int value)
 {
@@ -112,7 +112,7 @@ static int ra_filter_run(ra_filter_t *filter, int value)
     return filter->sum / filter->count;
 }
 #endif
-
+// Controls the LED illuminator, adjusting intensity based on streaming state and limits
 #if CONFIG_LED_ILLUMINATOR_ENABLED
 void enable_led(bool en)
 { // Turn LED On or Off
@@ -127,7 +127,7 @@ void enable_led(bool en)
     log_i("Set LED intensity to %d", duty);
 }
 #endif
-
+// Captures a camera frame, converts it to BMP, and sends it as an HTTP response
 static esp_err_t bmp_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
@@ -169,7 +169,7 @@ static esp_err_t bmp_handler(httpd_req_t *req)
     log_i("BMP: %llums, %uB", (uint64_t)((fr_end - fr_start) / 1000), buf_len);
     return res;
 }
-
+// Sends JPEG data chunks over HTTP and tracks the total sent length
 static size_t jpg_encode_stream(void *arg, size_t index, const void *data, size_t len)
 {
     jpg_chunking_t *j = (jpg_chunking_t *)arg;
@@ -184,7 +184,7 @@ static size_t jpg_encode_stream(void *arg, size_t index, const void *data, size_
     j->len += len;
     return len;
 }
-
+// Captures a camera frame, optionally flashes LED, converts to JPEG if needed, and sends it over HTTP
 static esp_err_t capture_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
@@ -243,7 +243,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
         log_i("JPG: %uB %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
         return res;
 }
-
+// Streams continuous MJPEG frames from the camera over HTTP, optionally flashing LED and logging framerate
 static esp_err_t stream_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
@@ -352,7 +352,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
 
     return res;
 }
-
+// Extracts the URL query string from an HTTP GET request and returns it via obuf; returns ESP_OK on success or sends 404/500 on failure
 static esp_err_t parse_get(httpd_req_t *req, char **obuf)
 {
     char *buf = NULL;
@@ -374,7 +374,7 @@ static esp_err_t parse_get(httpd_req_t *req, char **obuf)
     httpd_resp_send_404(req);
     return ESP_FAIL;
 }
-
+// Handles HTTP requests to control camera settings by parsing query parameters and applying them in real-time
 static esp_err_t cmd_handler(httpd_req_t *req)
 {
     char *buf = NULL;
@@ -467,11 +467,11 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, NULL, 0);
 }
-
+// Formats a sensor register value as a JSON-style string and writes it to the provided buffer
 static int print_reg(char * p, sensor_t * s, uint16_t reg, uint32_t mask){
     return sprintf(p, "\"0x%x\":%u,", reg, s->get_reg(s, reg, mask));
 }
-
+// Generates a JSON response with detailed camera sensor registers and settings, then sends it via HTTP
 static esp_err_t status_handler(httpd_req_t *req)
 {
     static char json_response[1024];
@@ -546,7 +546,7 @@ static esp_err_t status_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, json_response, strlen(json_response));
 }
-
+// Handles HTTP requests to set the camera's XCLK frequency and responds with success or error
 static esp_err_t xclk_handler(httpd_req_t *req)
 {
     char *buf = NULL;
@@ -574,7 +574,7 @@ static esp_err_t xclk_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, NULL, 0);
 }
-
+// Handles HTTP requests to set a specific camera register using a mask and value, returning success or error
 static esp_err_t reg_handler(httpd_req_t *req)
 {
     char *buf = NULL;
@@ -608,7 +608,7 @@ static esp_err_t reg_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, NULL, 0);
 }
-
+// Handles HTTP requests to read a specific camera register with a mask and return its value
 static esp_err_t greg_handler(httpd_req_t *req)
 {
     char *buf = NULL;
@@ -640,7 +640,7 @@ static esp_err_t greg_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, val, strlen(val));
 }
-
+// Parses an integer GET parameter from an HTTP query string, returning a default if not found
 static int parse_get_var(char *buf, const char * key, int def)
 {
     char _int[16];
@@ -649,7 +649,7 @@ static int parse_get_var(char *buf, const char * key, int def)
     }
     return atoi(_int);
 }
-
+// Handles an HTTP request to configure the camera's PLL settings via query parameters
 static esp_err_t pll_handler(httpd_req_t *req)
 {
     char *buf = NULL;
@@ -678,7 +678,7 @@ static esp_err_t pll_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, NULL, 0);
 }
-
+// Handles an HTTP request to configure the camera's capture window, scaling, and binning settings
 static esp_err_t win_handler(httpd_req_t *req)
 {
     char *buf = NULL;
@@ -711,7 +711,7 @@ static esp_err_t win_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, NULL, 0);
 }
-
+// Serves the appropriate compressed HTML index page based on the connected camera sensor
 static esp_err_t index_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html");
@@ -730,7 +730,7 @@ static esp_err_t index_handler(httpd_req_t *req)
         return httpd_resp_send_500(req);
     }
 }
-
+// Initializes and starts the camera web server, registering all HTTP endpoints for control, status, capture, streaming, and sensor configuration
 void startCameraServer()
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -911,7 +911,7 @@ void startCameraServer()
         httpd_register_uri_handler(stream_httpd, &stream_uri);
     }
 }
-
+// Configures the LED flash pin using PWM if the LED illuminator feature is enabled
 void setupLedFlash(int pin) 
 {
     #if CONFIG_LED_ILLUMINATOR_ENABLED
@@ -921,3 +921,4 @@ void setupLedFlash(int pin)
     log_i("LED flash is disabled -> CONFIG_LED_ILLUMINATOR_ENABLED = 0");
     #endif
 }
+

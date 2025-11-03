@@ -1,13 +1,18 @@
 #include "esp_camera.h"
 #include <WiFi.h>
 
+//The ESP32-CAM operates in standalone mode (No external wifi necessary)
+
+
 // Select camera model
+
+//The physical board being used
 #define CAMERA_MODEL_AI_THINKER // Has PSRAM
-// Espressif Internal Board
+
 #define CAMERA_MODEL_ESP32_CAM_BOARD
 #include "camera_pins.h"
 
-// Access Point credentials
+// Access Point credentials (currently unused)
 const char* ssid = "ESP32-CAM Access Point";
 const char* password = "changeme";
 
@@ -19,9 +24,14 @@ void setup() {
   Serial.setDebugOutput(true);
   Serial.println();
 
+  //Entire Camera Configuration
   camera_config_t config;
+
+  // Set PWM channels and timers for the camera clock
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
+
+  // pin connections for the camera module
   config.pin_d0 = Y2_GPIO_NUM;
   config.pin_d1 = Y3_GPIO_NUM;
   config.pin_d2 = Y4_GPIO_NUM;
@@ -38,9 +48,9 @@ void setup() {
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
-  config.frame_size = FRAMESIZE_UXGA;
-  config.pixel_format = PIXFORMAT_JPEG; // for streaming
+  config.xclk_freq_hz = 20000000; // camera clock speed
+  config.frame_size = FRAMESIZE_UXGA; // max resolution (can be changed later)
+  config.pixel_format = PIXFORMAT_JPEG; // JPEG for efficient capture/processing 
   //config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
@@ -72,13 +82,14 @@ void setup() {
   pinMode(14, INPUT_PULLUP);
 #endif
 
-  // camera init
+  // camera initializatoin
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
 
+  //Access camera sensor settings
   sensor_t * s = esp_camera_sensor_get();
   // initial sensors are flipped vertically and colors are a bit saturated
   if (s->id.PID == OV3660_PID) {
@@ -222,7 +233,8 @@ void readRGBImage() {
     Serial.println("");
   }
 
-  // Check for end of line condition: Top row lum is all >= 0.5 i.e. more light than dark
+  // ===== DECISION LOGIC =====
+  // Top row bright → swimmer approaching a well-lit wall or pool edge
   bool top_white = true;
   for (uint32_t j = 0; j < TILE_COL_NUM; ++j) {
     if (tile_lum[0][j] < 0.5) {
@@ -232,6 +244,7 @@ void readRGBImage() {
   }
   if (top_white) {
     Serial.println("Reached end");
+    // Consideration: Couldl trigger vibration/haptic alert here
   } else {
     // Check for direction: lum of bottom row
     // TODO: Check for lum of column instead
@@ -255,10 +268,11 @@ void readRGBImage() {
    * End "3 by 2 grid" processing method 
    */
 
-  // free up memory
+  // free up memory and return buffer to camera driver
   esp_camera_fb_return(fb);
   heap_caps_free(ptrVal);
 
   Serial.println("-------");
   //Serial.println(tReply);
 }
+

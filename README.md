@@ -1,6 +1,4 @@
-# VisionSwim2.0
-Using computer vision software and arduino to design swim lane detection device
-
+# VisionSwim2.0: Using computer vision software and arduino to design swim lane detection device
 ## Project for Team VisionSwim2.0 of MedLaunch UIUC 2025:
 
 ### About MedLaunch:

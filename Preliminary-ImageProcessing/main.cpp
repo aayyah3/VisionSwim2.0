@@ -12,7 +12,7 @@ int main() {
   const char* image_input = image_name.c_str();
   CImg<unsigned char> image(image_input); // replace with image to test
 
-  image.blur(7.2); // blur image to "erase" small details
+  image.blur(7.2); // removes noise from the surroundings(water disturbances, glare, etc) to allow focus on the line
 
   // 11.10 - 3 by 2 grid
   // for now, grid will be split evenly (i.e. into half for rows, into thirds for columns)
@@ -144,4 +144,5 @@ else {
   else if (left_col_white) std::cout << "Go right\n";
   else std::cout << "Go left\n";
 }
+
 */

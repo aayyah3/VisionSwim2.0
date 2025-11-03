@@ -1,4 +1,6 @@
 
+// based on camera pin configuration, this code dictates how the image processing code is executed
+// different pin configurations and represented as different camera models 
 #if defined(CAMERA_MODEL_WROVER_KIT)
 #define PWDN_GPIO_NUM    -1
 #define RESET_GPIO_NUM   -1
@@ -273,6 +275,7 @@
 #define HREF_GPIO_NUM     4
 #define PCLK_GPIO_NUM     3
 
+// different camera model 
 #elif defined(CAMERA_MODEL_ESP32S3_EYE)
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
@@ -312,6 +315,8 @@
 #define HREF_GPIO_NUM     42
 #define PCLK_GPIO_NUM     5
 
+// error message if model is not selected 
 #else
 #error "Camera model not selected"
 #endif
+

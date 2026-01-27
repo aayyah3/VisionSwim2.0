@@ -1,3 +1,20 @@
+#include <SoftwareSerial.h>
+
+SoftwareSerial Serial1(8, 9);  // RX = 8, TX = 9 (you can change pins)
+
+
+#include <PIDLoop.h>
+#include <Pixy2.h>
+#include <Pixy2CCC.h>
+#include <Pixy2I2C.h>
+#include <Pixy2Line.h>
+#include <Pixy2SPI_SS.h>
+#include <Pixy2UART.h>
+#include <Pixy2Video.h>
+#include <TPixy2.h>
+#include <ZumoBuzzer.h>
+#include <ZumoMotors.h>
+
 //
 // begin license header
 //
@@ -18,8 +35,10 @@
 #define PIXY_MAX_X 78 
 
 //Arduino pins that will be used to control motors or actuators for turning.
-#define TURN_LEFT_PIN A0 
-#define TURN_RIGHT_PIN A2
+#define TURN_LEFT_PIN A2
+#define TURN_RIGHT_PIN A3
+#define GROUND_PIN_0 A0
+#define GROUND_PIN_1 A1
 
 Pixy2 pixy;
 int threshold = 20; // A “dead zone” from the left or right side of the camera’s view.
@@ -34,21 +53,24 @@ void setup()
   // you can change to the line_tracking program by calling changeProg("line") instead of the whole
   // string changeProg("line_tracking")
   Serial.println(pixy.changeProg("line")); //Tells the Pixy camera to switch to line tracking mode.
+  analogWrite(GROUND_PIN_1, 0);
+  analogWrite(GROUND_PIN_0, 0);
 }
 
 void loop()
 {
   pixy.line.getAllFeatures(); //Requests all the line vectors Pixy sees
-
+//  
+//  Serial.print("Number on lines detected: ");
+//  Serial.println(pixy.line.numVectors);
+    
   if (pixy.line.numVectors){ 
+    uint8_t r, g, b;
     Serial.println(pixy.line.numVectors);
-    if(pixy.line.numVectors > 1){ //If Pixy sees more than one line vector → the robot assumes it reached a junction or intersection
-      //stop or turn-around
-      analogWrite(TURN_LEFT_PIN, 255); 
-      analogWrite(TURN_RIGHT_PIN, 255);
-      Serial.println("Turn around");
-    }
-    else if (pixy.line.vectors->m_x1 < threshold) {
+    pixy.video.getRGB(pixy.line.vectors->m_x1, pixy.line.vectors->m_y1, &r, &g, &b);
+    Serial.println("Blue value: ");
+    Serial.println(b);
+    if (pixy.line.vectors->m_x1 < threshold) {
       //turn left
       analogWrite(TURN_LEFT_PIN, 255);
       analogWrite(TURN_RIGHT_PIN, 0);
@@ -65,12 +87,12 @@ void loop()
       Serial.println("Go Straight");
     }
     //nothing detected 
-  } else {
-    analogWrite(TURN_LEFT_PIN, 0);
-    analogWrite(TURN_RIGHT_PIN, 0);
-    Serial.println("no vector detected");
-  }
+  } 
+//  else {
+//    analogWrite(TURN_LEFT_PIN, 0);
+//    analogWrite(TURN_RIGHT_PIN, 0);
+//    Serial.println("no vector detected");
+//  }
 
   delay(100);
 }
-

@@ -14,6 +14,7 @@ SoftwareSerial Serial1(8, 9);  // RX = 8, TX = 9 (you can change pins)
 #include <TPixy2.h>
 #include <ZumoBuzzer.h>
 #include <ZumoMotors.h>
+#include <limits.h>
 
 //
 // begin license header
@@ -38,6 +39,11 @@ SoftwareSerial Serial1(8, 9);  // RX = 8, TX = 9 (you can change pins)
 #define TURN_RIGHT_PIN A3
 #define GROUND_PIN_0 A0
 #define GROUND_PIN_1 A1
+
+//Reference RGB color of the pool lane line (tune these!)
+const uint8_t POOL_R = 28;
+const uint8_t POOL_G = 71;
+const uint8_t POOL_B = 97;
 
 Pixy2 pixy;
 int threshold = 20; // A “dead zone” from the left or right side of the camera’s view.
@@ -109,45 +115,45 @@ void loop()
     currentDir = DIR_NONE;
   } 
   else {
-    // Find bluest line
+    // Find line whose color is closest to pool lane color
     uint8_t r, g, b;
-    uint8_t maxBlue = 0;
-    int blue_idx = 0;
+    long minDist = LONG_MAX;
+    int best_idx = 0;
 
-    // Check first vector
-    pixy.video.getRGB(
-      pixy.line.vectors[0].m_x1,
-      pixy.line.vectors[0].m_y1,
-      &r, &g, &maxBlue
-    );
-
-    // Check remaining vectors
-    for (int i = 1; i < pixy.line.numVectors; i++) {
-      pixy.video.getRGB(
-        pixy.line.vectors[i].m_x1,
-        pixy.line.vectors[i].m_y1,
-        &r, &g, &b
-      );
-      if (b > maxBlue) {
-        maxBlue = b;
-        blue_idx = i;
+    for (int i = 0; i < pixy.line.numVectors; i++) {
+      int sampleX = (pixy.line.vectors[i].m_x0 + pixy.line.vectors[i].m_x1) / 2;
+      int sampleY = (pixy.line.vectors[i].m_y0 + pixy.line.vectors[i].m_y1) / 2;
+    
+      pixy.video.getRGB(sampleX, sampleY, &r, &g, &b);
+    
+      long dr = r - POOL_R;
+      long dg = g - POOL_G;
+      long db = b - POOL_B;
+    
+      long dist = dr*dr + dg*dg + db*db;
+    
+      if (dist < minDist) {
+        minDist = dist;
+        best_idx = i;
       }
     }
-
-    // Use center of line
-    int x0 = pixy.line.vectors[blue_idx].m_x0;
-    int x1 = pixy.line.vectors[blue_idx].m_x1;
-    int lineCenterX = (x0 + x1) / 2;
-
-    // Decide direction for this change
-    if (lineCenterX < threshold) {
-      currentDir = DIR_LEFT;
-    } 
-    else if (lineCenterX > PIXY_MAX_X - threshold) {
-      currentDir = DIR_RIGHT;
-    } 
+    if (minDist > 4000) { 
+        currentDir = DIR_NONE; 
+    }
     else {
-      currentDir = DIR_STRAIGHT;
+      int x0 = pixy.line.vectors[best_idx].m_x0;
+      int x1 = pixy.line.vectors[best_idx].m_x1;
+      int lineCenterX = (x0 + x1) / 2;
+      // Decide direction for this change
+      if (lineCenterX < threshold) {
+        currentDir = DIR_LEFT;
+      } 
+      else if (lineCenterX > PIXY_MAX_X - threshold) {
+        currentDir = DIR_RIGHT;
+      } 
+      else {
+        currentDir = DIR_STRAIGHT;
+      }
     }
   }
 
@@ -168,6 +174,7 @@ void loop()
 
   delay(100);  // ~10 Hz update rate
 }
+
 
 
 

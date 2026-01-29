@@ -63,19 +63,29 @@ void loop()
 //  
 //  Serial.print("Number on lines detected: ");
 //  Serial.println(pixy.line.numVectors);
-    
-  if (pixy.line.numVectors){ 
-    uint8_t r, g, b;
-    Serial.println(pixy.line.numVectors);
-    pixy.video.getRGB(pixy.line.vectors->m_x1, pixy.line.vectors->m_y1, &r, &g, &b);
-    Serial.println("Blue value: ");
-    Serial.println(b);
-    if (pixy.line.vectors->m_x1 < threshold) {
+  if (pixy.line.numVectors == 0)
+    return;
+  uint8_t r, g, b = 0;
+  int blue_idx = 0;
+  uint8_t maxBlue = 0;
+  pixy.video.getRGB(pixy.line.vectors->m_x1, pixy.line.vectors->m_y1, &r, &g, &maxBlue);
+  
+  for(int i = 1; i < pixy.line.numVectors; i++)
+  {
+    pixy.video.getRGB(pixy.line.vectors[i].m_x1, pixy.line.vectors[i].m_y1, &r, &g, &b);
+    if(b > maxBlue)
+    {
+      blue_idx = i;
+      maxBlue = b;
+    }
+  }
+
+  if (pixy.line.vectors[blue_idx].m_x1 < threshold) {
       //turn left
       analogWrite(TURN_LEFT_PIN, 255);
       analogWrite(TURN_RIGHT_PIN, 0);
       Serial.println("Turn Left"); 
-    } else if (pixy.line.vectors->m_x1 > PIXY_MAX_X - threshold) {
+    } else if (pixy.line.vectors[blue_idx].m_x1 > PIXY_MAX_X - threshold) {
       //turn right
       analogWrite(TURN_LEFT_PIN, 0);
       analogWrite(TURN_RIGHT_PIN, 255);
@@ -86,8 +96,30 @@ void loop()
       analogWrite(TURN_RIGHT_PIN, 0);
       Serial.println("Go Straight");
     }
-    //nothing detected 
-  } 
+//  if (pixy.line.numVectors){ 
+//    
+//    Serial.println(pixy.line.numVectors);
+//    pixy.video.getRGB(pixy.line.vectors->m_x1, pixy.line.vectors->m_y1, &r, &g, &b);
+//    Serial.println("Blue value: ");
+//    Serial.println(b);
+//    if (pixy.line.vectors->m_x1 < threshold) {
+//      //turn left
+//      analogWrite(TURN_LEFT_PIN, 255);
+//      analogWrite(TURN_RIGHT_PIN, 0);
+//      Serial.println("Turn Left"); 
+//    } else if (pixy.line.vectors->m_x1 > PIXY_MAX_X - threshold) {
+//      //turn right
+//      analogWrite(TURN_LEFT_PIN, 0);
+//      analogWrite(TURN_RIGHT_PIN, 255);
+//      Serial.println("Turn Right");
+//    } else {
+//      //go straight
+//      analogWrite(TURN_LEFT_PIN, 0);
+//      analogWrite(TURN_RIGHT_PIN, 0);
+//      Serial.println("Go Straight");
+//    }
+//    //nothing detected 
+//  } 
 //  else {
 //    analogWrite(TURN_LEFT_PIN, 0);
 //    analogWrite(TURN_RIGHT_PIN, 0);

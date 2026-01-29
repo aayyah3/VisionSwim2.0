@@ -30,7 +30,6 @@ SoftwareSerial Serial1(8, 9);  // RX = 8, TX = 9 (you can change pins)
 // end license header
 //
 
-#include <Pixy2.h>
 //max x coordinate
 #define PIXY_MAX_X 78 
 
@@ -42,6 +41,48 @@ SoftwareSerial Serial1(8, 9);  // RX = 8, TX = 9 (you can change pins)
 
 Pixy2 pixy;
 int threshold = 20; // A “dead zone” from the left or right side of the camera’s view.
+
+enum Direction {
+  DIR_NONE,
+  DIR_LEFT,
+  DIR_RIGHT,
+  DIR_STRAIGHT
+};
+
+Direction candidateDir = DIR_NONE;
+Direction confirmedDir = DIR_NONE;
+int consecutiveCount = 0;
+
+const int REQUIRED_FRAMES = 5;
+
+void signalDirection(Direction dir)
+{
+  switch (dir) {
+    case DIR_LEFT:
+      Serial.println("LEFT");
+      analogWrite(TURN_LEFT_PIN, 255);
+      analogWrite(TURN_RIGHT_PIN, 0);
+      break;
+
+    case DIR_RIGHT:
+      Serial.println("RIGHT");
+      analogWrite(TURN_LEFT_PIN, 0);
+      analogWrite(TURN_RIGHT_PIN, 255);
+      break;
+
+    case DIR_STRAIGHT:
+      Serial.println("STRAIGHT");
+      analogWrite(TURN_LEFT_PIN, 0);
+      analogWrite(TURN_RIGHT_PIN, 0);
+      break;
+
+    case DIR_NONE:
+      Serial.println("NO LINE");
+      analogWrite(TURN_LEFT_PIN, 0);
+      analogWrite(TURN_RIGHT_PIN, 0);
+      break;
+  }
+}
 
 void setup()
 {
@@ -59,73 +100,74 @@ void setup()
 
 void loop()
 {
-  pixy.line.getAllFeatures(); //Requests all the line vectors Pixy sees
-//  
-//  Serial.print("Number on lines detected: ");
-//  Serial.println(pixy.line.numVectors);
-  if (pixy.line.numVectors == 0)
-    return;
-  uint8_t r, g, b = 0;
-  int blue_idx = 0;
-  uint8_t maxBlue = 0;
-  pixy.video.getRGB(pixy.line.vectors->m_x1, pixy.line.vectors->m_y1, &r, &g, &maxBlue);
-  
-  for(int i = 1; i < pixy.line.numVectors; i++)
-  {
-    pixy.video.getRGB(pixy.line.vectors[i].m_x1, pixy.line.vectors[i].m_y1, &r, &g, &b);
-    if(b > maxBlue)
-    {
-      blue_idx = i;
-      maxBlue = b;
+  pixy.line.getAllFeatures();
+
+  Direction currentDir = DIR_NONE;
+
+  // No line detected
+  if (pixy.line.numVectors == 0) {
+    currentDir = DIR_NONE;
+  } 
+  else {
+    // Find bluest line
+    uint8_t r, g, b;
+    uint8_t maxBlue = 0;
+    int blue_idx = 0;
+
+    // Check first vector
+    pixy.video.getRGB(
+      pixy.line.vectors[0].m_x1,
+      pixy.line.vectors[0].m_y1,
+      &r, &g, &maxBlue
+    );
+
+    // Check remaining vectors
+    for (int i = 1; i < pixy.line.numVectors; i++) {
+      pixy.video.getRGB(
+        pixy.line.vectors[i].m_x1,
+        pixy.line.vectors[i].m_y1,
+        &r, &g, &b
+      );
+      if (b > maxBlue) {
+        maxBlue = b;
+        blue_idx = i;
+      }
+    }
+
+    // Use center of line
+    int x0 = pixy.line.vectors[blue_idx].m_x0;
+    int x1 = pixy.line.vectors[blue_idx].m_x1;
+    int lineCenterX = (x0 + x1) / 2;
+
+    // Decide direction for this change
+    if (lineCenterX < threshold) {
+      currentDir = DIR_LEFT;
+    } 
+    else if (lineCenterX > PIXY_MAX_X - threshold) {
+      currentDir = DIR_RIGHT;
+    } 
+    else {
+      currentDir = DIR_STRAIGHT;
     }
   }
 
-  if (pixy.line.vectors[blue_idx].m_x1 < threshold) {
-      //turn left
-      analogWrite(TURN_LEFT_PIN, 255);
-      analogWrite(TURN_RIGHT_PIN, 0);
-      Serial.println("Turn Left"); 
-    } else if (pixy.line.vectors[blue_idx].m_x1 > PIXY_MAX_X - threshold) {
-      //turn right
-      analogWrite(TURN_LEFT_PIN, 0);
-      analogWrite(TURN_RIGHT_PIN, 255);
-      Serial.println("Turn Right");
-    } else {
-      //go straight
-      analogWrite(TURN_LEFT_PIN, 0);
-      analogWrite(TURN_RIGHT_PIN, 0);
-      Serial.println("Go Straight");
-    }
-//  if (pixy.line.numVectors){ 
-//    
-//    Serial.println(pixy.line.numVectors);
-//    pixy.video.getRGB(pixy.line.vectors->m_x1, pixy.line.vectors->m_y1, &r, &g, &b);
-//    Serial.println("Blue value: ");
-//    Serial.println(b);
-//    if (pixy.line.vectors->m_x1 < threshold) {
-//      //turn left
-//      analogWrite(TURN_LEFT_PIN, 255);
-//      analogWrite(TURN_RIGHT_PIN, 0);
-//      Serial.println("Turn Left"); 
-//    } else if (pixy.line.vectors->m_x1 > PIXY_MAX_X - threshold) {
-//      //turn right
-//      analogWrite(TURN_LEFT_PIN, 0);
-//      analogWrite(TURN_RIGHT_PIN, 255);
-//      Serial.println("Turn Right");
-//    } else {
-//      //go straight
-//      analogWrite(TURN_LEFT_PIN, 0);
-//      analogWrite(TURN_RIGHT_PIN, 0);
-//      Serial.println("Go Straight");
-//    }
-//    //nothing detected 
-//  } 
-//  else {
-//    analogWrite(TURN_LEFT_PIN, 0);
-//    analogWrite(TURN_RIGHT_PIN, 0);
-//    Serial.println("no vector detected");
-//  }
+  // Consecutive frame confirmation
+  if (currentDir == candidateDir) {
+    consecutiveCount++;
+  } else {
+    candidateDir = currentDir;
+    consecutiveCount = 1;
+  }
 
-  delay(100);
+  if (consecutiveCount >= REQUIRED_FRAMES &&
+      confirmedDir != candidateDir) {
+
+    confirmedDir = candidateDir;
+    signalDirection(confirmedDir);
+  }
+
+  delay(100);  // ~10 Hz update rate
 }
+
+
 

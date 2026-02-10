@@ -30,7 +30,6 @@ enum Direction { DIR_NONE, DIR_LEFT, DIR_RIGHT, DIR_STRAIGHT };
 Direction candidateDir = DIR_NONE;
 Direction confirmedDir = DIR_NONE;
 int consecutiveCount = 0;
-int lockedIndex = -1; // Stores the m_index of the line we are currently following
 
 void signalDirection(Direction dir) {
   // Logic remains the same: High on A2 for Left, A3 for Right
@@ -58,19 +57,8 @@ void loop() {
   Direction currentDir = DIR_NONE;
   int best_idx = -1;
 
-  // STEP 1: Check if our "Locked" line still exists
-  if (lockedIndex != -1) {
-    for (int i = 0; i < pixy.line.numVectors; i++) {
-      if (pixy.line.vectors[i].m_index == lockedIndex) {
-        best_idx = i;
-        break;
-      }
-    }
-  }
 
-  // STEP 2: If no locked line, find a NEW one that is "Long and Blue"
-  if (best_idx == -1) {
-    lockedIndex = -1; // Reset lock if it was lost
+  // STEP 1: Find a line that is "Long and Blue"
     long minDist = LONG_MAX;
 
     for (int i = 0; i < pixy.line.numVectors; i++) {
@@ -88,17 +76,14 @@ void loop() {
 
         long dist = pow(r-POOL_R, 2) + pow(g-POOL_G, 2) + pow(b-POOL_B, 2);
 
-        if (dist < COLOR_THRESHOLD && dist < minDist) {
+        if (dist < minDist) {
           minDist = dist;
           best_idx = i;
         }
       }
     }
-    // If we found a valid match, lock it!
-    if (best_idx != -1) lockedIndex = pixy.line.vectors[best_idx].m_index;
-  }
 
-  // STEP 3: Decide Direction (Flowchart: Check Position)
+  // STEP 2: Decide Direction (Flowchart: Check Position)
   if (best_idx != -1) {
     int lineCenterX = (pixy.line.vectors[best_idx].m_x0 + pixy.line.vectors[best_idx].m_x1) / 2;
     if (lineCenterX < threshold) currentDir = DIR_LEFT;
@@ -106,7 +91,7 @@ void loop() {
     else currentDir = DIR_STRAIGHT;
   }
 
-  // STEP 4: Frame Confirmation
+  // STEP 3: Frame Confirmation
   if (currentDir == candidateDir) consecutiveCount++;
   else { candidateDir = currentDir; consecutiveCount = 1; }
 

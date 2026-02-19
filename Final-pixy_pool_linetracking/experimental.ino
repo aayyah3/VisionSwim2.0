@@ -122,80 +122,85 @@ void setup() {
 
 
 void loop() {
-
+  // Get main line features from Pixy2
   if (!pixy.line.getMainFeatures()) {
-    delay(10);
+    Serial.println("No vectors detected at all!");
+    delay(100); // avoid spamming
     return;
   }
 
-  Direction currentDir = DIR_NONE;
   int best_idx = -1;
   long bestLen = 0;
 
-  // Loop through all detected vectors
+  // Iterate over all detected vectors
   for (int i = 0; i < pixy.line.numVectors; i++) {
 
-    int dx = pixy.line.vectors[i].m_x1 - pixy.line.vectors[i].m_x0;
-    int dy = pixy.line.vectors[i].m_y1 - pixy.line.vectors[i].m_y0;
-    long lenSq = (long)dx*dx + (long)dy*dy;
+    int x0 = pixy.line.vectors[i].m_x0;
+    int y0 = pixy.line.vectors[i].m_y0;
+    int x1 = pixy.line.vectors[i].m_x1;
+    int y1 = pixy.line.vectors[i].m_y1;
 
-    // Ignore short noise lines
-    if (lenSq >= MIN_LINE_LENGTH_SQ) {
+    int dx = x1 - x0;
+    int dy = y1 - y0;
+    long lenSq = (long)dx * dx + (long)dy * dy;
 
-      // Sample midpoint of vector
-      int x0 = pixy.line.vectors[i].m_x0;
-      int y0 = pixy.line.vectors[i].m_y0;
-      int x1 = pixy.line.vectors[i].m_x1;
-      int y1 = pixy.line.vectors[i].m_y1;
+    // Ignore tiny vectors
+    if (lenSq < MIN_LINE_LENGTH_SQ) continue;
 
-      int sx = (x0 + x1) / 2;
-      int sy = (y0 + y1) / 2;
+    // Sample only the midpoint to reduce CPU load
+    int sx = (x0 + x1) / 2;
+    int sy = (y0 + y1) / 2;
 
-      // Properly declared RGB variables
-      uint8_t r, g, b;
-      pixy.video.getRGB(sx, sy, &r, &g, &b);
+    uint8_t r_mid, g_mid, b_mid;
+    pixy.video.getRGB(sx, sy, &r_mid, &g_mid, &b_mid);
 
-      // Convert to float for HSV
-      float r_avg = r;
-      float g_avg = g;
-      float b_avg = b;
+    float r_avg = (float)r_mid;
+    float g_avg = (float)g_mid;
+    float b_avg = (float)b_mid;
 
-      HSV hsv = rgbToHsv(r_avg, g_avg, b_avg);
+    HSV hsv = rgbToHsv(r_avg, g_avg, b_avg);
 
-      // Check if color falls in underwater blue range
-      if (hsv.h >= TARGET_HUE_MIN &&
-          hsv.h <= TARGET_HUE_MAX &&
-          hsv.s >= MIN_SATURATION &&
-          hsv.v >= MIN_VALUE) {
+    // Debug: see what HSV Pixy2 is reading
+    Serial.print("Vector "); Serial.print(i);
+    Serial.print(" H: "); Serial.print(hsv.h);
+    Serial.print(" S: "); Serial.print(hsv.s);
+    Serial.print(" V: "); Serial.println(hsv.v);
 
-          // Keep the longest valid line
-          if (lenSq > bestLen) {
-              bestLen = lenSq;
-              best_idx = i;
-          }
-      }
+    // Check if vector falls inside your underwater blue range
+    if (hsv.h >= TARGET_HUE_MIN &&
+        hsv.h <= TARGET_HUE_MAX &&
+        hsv.s >= MIN_SATURATION &&
+        hsv.v >= MIN_VALUE) {
+
+        // Keep the longest valid vector
+        if (lenSq > bestLen) {
+          bestLen = lenSq;
+          best_idx = i;
+        }
     }
   }
 
+  // No valid vector found
   if (best_idx == -1) {
-    Serial.println("No valid line detected");
+    Serial.println("No valid line detected (after HSV filter)");
+    delay(50);
+    return;
   }
 
-  if (best_idx != -1) {
+  // Determine horizontal center of the best vector
+  int lineCenterX = (pixy.line.vectors[best_idx].m_x0 +
+                     pixy.line.vectors[best_idx].m_x1) / 2;
 
-    int lineCenterX =
-      (pixy.line.vectors[best_idx].m_x0 +
-       pixy.line.vectors[best_idx].m_x1) / 2;
+  // Decide direction based on horizontal position
+  Direction currentDir = DIR_NONE;
+  if (lineCenterX < threshold)
+    currentDir = DIR_LEFT;
+  else if (lineCenterX > PIXY_MAX_X - threshold)
+    currentDir = DIR_RIGHT;
+  else
+    currentDir = DIR_STRAIGHT;
 
-    if (lineCenterX < threshold)
-      currentDir = DIR_LEFT;
-    else if (lineCenterX > PIXY_MAX_X - threshold)
-      currentDir = DIR_RIGHT;
-    else
-      currentDir = DIR_STRAIGHT;
-  }
-
-  // Frame-to-frame stability filter
+  // Temporal smoothing
   if (currentDir == candidateDir)
     consecutiveCount++;
   else {
@@ -203,12 +208,17 @@ void loop() {
     consecutiveCount = 1;
   }
 
+  // Only commit to motor if stable across REQUIRED_FRAMES
   if (consecutiveCount >= REQUIRED_FRAMES &&
       confirmedDir != candidateDir) {
 
     confirmedDir = candidateDir;
     signalDirection(confirmedDir);
+    Serial.print("Motor command: ");
+    if (confirmedDir == DIR_LEFT) Serial.println("LEFT");
+    else if (confirmedDir == DIR_RIGHT) Serial.println("RIGHT");
+    else Serial.println("STRAIGHT");
   }
 
-  delay(10);
+  delay(10); // small delay to stabilize loop
 }

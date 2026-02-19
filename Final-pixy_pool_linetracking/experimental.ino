@@ -55,7 +55,7 @@ void setup() {
 }
 
 void loop() {
-  pixy.line.getAllFeatures();
+  pixy.line.getMainFeatures();
   Direction currentDir = DIR_NONE;
   int best_idx = -1;
 

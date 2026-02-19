@@ -2,7 +2,7 @@
 #include <math.h>
 #include <limits.h>
 
-#define PIXY_MAX_X 78   // Pixy2 line tracking max X resolution
+#define PIXY_MAX_X 319   // Pixy2 line tracking max X resolution
 
 // PWM output pins (Nano compatible)
 #define TURN_LEFT_PIN 5
@@ -163,14 +163,7 @@ void loop() {
       int sx = (x0 + x1) / 2;
       int sy = (y0 + y1) / 2;
 
-      pixy.video.getRGB(x0, y0, &r1, &g1, &b1);
-      pixy.video.getRGB(sx, sy, &r2, &g2, &b2);
-      pixy.video.getRGB(x1, y1, &r3, &g3, &b3);
-
-      // Average the 3 samples to reduce flicker
-      float r_avg = (r1 + r2 + r3) / 3.0f;
-      float g_avg = (g1 + g2 + g3) / 3.0f;
-      float b_avg = (b1 + b2 + b3) / 3.0f;
+      pixy.video.getRGB(sx, sy, &r_avg, &g_avg, &b_avg);
 
       HSV hsv = rgbToHsv(r_avg, g_avg, b_avg);
 

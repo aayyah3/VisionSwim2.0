@@ -77,14 +77,22 @@ void signalDirection(Direction dir) {
   if (dir == DIR_LEFT) {
     analogWrite(TURN_LEFT_PIN, 255);
     analogWrite(TURN_RIGHT_PIN, 0);
+    Serial.println("Turn LEFT");
   }
   else if (dir == DIR_RIGHT) {
     analogWrite(TURN_LEFT_PIN, 0);
     analogWrite(TURN_RIGHT_PIN, 255);
+    Serial.println("Turn RIGHT");
+  }
+  else if (dir == DIR_STRAIGHT) {
+    analogWrite(TURN_LEFT_PIN, 0);
+    analogWrite(TURN_RIGHT_PIN, 0);
+    Serial.println("Go STRAIGHT");
   }
   else {
     analogWrite(TURN_LEFT_PIN, 0);
     analogWrite(TURN_RIGHT_PIN, 0);
+    Serial.println("No Line Detected");
   }
 }
 

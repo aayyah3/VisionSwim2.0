@@ -1,42 +1,53 @@
 #include <Pixy2.h>
-#include <math.h>   // Added for fmod
+#include <math.h>
 #include <limits.h>
-#include <algorithm> // NEW: For std::min and std::max
 
-#define PIXY_MAX_X 78 
+#define PIXY_MAX_X 78   // Pixy2 line tracking max X resolution
 
-// Hardware Pins
-#define TURN_LEFT_PIN 5   // Changed from A2 (Nano PWM fix)
-#define TURN_RIGHT_PIN 6  // Changed from A3 (Nano PWM fix)
+// PWM output pins (Nano compatible)
+#define TURN_LEFT_PIN 5
+#define TURN_RIGHT_PIN 6
 #define GROUND_PIN_0 A0
 #define GROUND_PIN_1 A1
 
-// --- UNDERWATER TUNING ---
-// Wide hue range to catch blue/cyan/teal despite water tint
-const float TARGET_HUE_MIN = 160.0; 
-const float TARGET_HUE_MAX = 270.0;
-// Low saturation (0.1 = 10%) because underwater colors look "washed out"
-const float MIN_SATURATION = 0.1; 
-// Low value (15.0) because the bottom of a pool is often dim
-const float MIN_VALUE = 15.0;     
+// ---- UNDERWATER HSV FILTER SETTINGS ----
+// Hue range widened slightly to tolerate blue/cyan shift in water
+const float TARGET_HUE_MIN = 170.0; 
+const float TARGET_HUE_MAX = 250.0;
 
-const long MIN_LINE_LENGTH_SQ = 100; // Filter out tiny noise (10px min)
-const int REQUIRED_FRAMES = 2;      // Faster response for moving water
+// Underwater colors look washed out, so allow lower saturation
+const float MIN_SATURATION = 0.12; 
+
+// Pool bottoms can be dim — allow fairly low brightness
+const float MIN_VALUE = 18.0;     
+
+// Ignore tiny noise vectors (roughly 12px minimum length)
+const long MIN_LINE_LENGTH_SQ = 150; 
+
+// Require direction to be stable for N frames before committing
+const int REQUIRED_FRAMES = 2;      
 
 Pixy2 pixy;
-const int threshold = 20; 
+const int threshold = 20;  // Deadband for center detection
 
+// Direction states
 enum Direction { DIR_NONE, DIR_LEFT, DIR_RIGHT, DIR_STRAIGHT };
+
 Direction candidateDir = DIR_NONE;
 Direction confirmedDir = DIR_NONE;
 int consecutiveCount = 0;
 
-struct HSV { float h, s, v; };  // Changed double -> float (Nano safe)
+// Simple HSV container
+struct HSV { float h, s, v; };
 
-// NEW: RGB to HSV Conversion function
+
+// Convert RGB (0–255) to HSV
+// We use float because Nano handles float fine, but avoid double
 HSV rgbToHsv(float r, float g, float b) {
+
     HSV out;
 
+    // Normalize to 0–1 range
     r /= 255.0f; 
     g /= 255.0f; 
     b /= 255.0f; 
@@ -45,16 +56,20 @@ HSV rgbToHsv(float r, float g, float b) {
     float maxVal = max(r, max(g, b));
     float delta = maxVal - minVal;
 
+    // Brightness scaled to 0–100 for easier threshold tuning
     out.v = maxVal * 100.0f; 
 
+    // If no brightness, no color information
     if (maxVal == 0.0f) { 
         out.s = 0.0f; 
         out.h = 0.0f; 
         return out; 
     }
 
+    // Saturation calculation
     out.s = (delta / maxVal); 
 
+    // Hue calculation depends on which channel is dominant
     if (delta == 0.0f) {
         out.h = 0.0f;
     }
@@ -64,7 +79,7 @@ HSV rgbToHsv(float r, float g, float b) {
     else if (maxVal == g) {
         out.h = 60.0f * (((b - r) / delta) + 2.0f);
     }
-    else if (maxVal == b) {
+    else {
         out.h = 60.0f * (((r - g) / delta) + 4.0f);
     }
 
@@ -73,46 +88,48 @@ HSV rgbToHsv(float r, float g, float b) {
     return out;
 }
 
+
+// Send PWM signal indicating direction
 void signalDirection(Direction dir) {
+
   if (dir == DIR_LEFT) {
     analogWrite(TURN_LEFT_PIN, 255);
     analogWrite(TURN_RIGHT_PIN, 0);
-    Serial.println("Turn LEFT");
   }
   else if (dir == DIR_RIGHT) {
     analogWrite(TURN_LEFT_PIN, 0);
     analogWrite(TURN_RIGHT_PIN, 255);
-    Serial.println("Turn RIGHT");
-  }
-  else if (dir == DIR_STRAIGHT) {
-    analogWrite(TURN_LEFT_PIN, 0);
-    analogWrite(TURN_RIGHT_PIN, 0);
-    Serial.println("Go STRAIGHT");
   }
   else {
     analogWrite(TURN_LEFT_PIN, 0);
     analogWrite(TURN_RIGHT_PIN, 0);
-    Serial.println("No Line Detected");
   }
 }
 
+
 void setup() {
+
   Serial.begin(115200);
+
   pixy.init();
   pixy.changeProg("line");
+
   pinMode(TURN_LEFT_PIN, OUTPUT);
   pinMode(TURN_RIGHT_PIN, OUTPUT);
   pinMode(GROUND_PIN_0, OUTPUT);
   pinMode(GROUND_PIN_1, OUTPUT);
+
   digitalWrite(GROUND_PIN_0, LOW);
   digitalWrite(GROUND_PIN_1, LOW);
-  
-  // NEW: Optimized for underwater visibility
-  pixy.setCameraBrightness(60); 
+
+  // Slightly increased brightness for underwater clarity
+  pixy.setCameraBrightness(60);
 }
+
 
 void loop() {
 
+  // If no line features detected this frame, skip quickly
   if (!pixy.line.getMainFeatures()) {
     delay(10);
     return;
@@ -120,67 +137,94 @@ void loop() {
 
   Direction currentDir = DIR_NONE;
   int best_idx = -1;
+  long bestLen = 0;  // We'll choose the longest valid blue vector
 
+  // Iterate over all detected vectors
   for (int i = 0; i < pixy.line.numVectors; i++) {
 
     int dx = pixy.line.vectors[i].m_x1 - pixy.line.vectors[i].m_x0;
     int dy = pixy.line.vectors[i].m_y1 - pixy.line.vectors[i].m_y0;
+
     long lenSq = (long)dx*dx + (long)dy*dy;
 
+    // Ignore tiny vectors (likely noise/reflections)
     if (lenSq >= MIN_LINE_LENGTH_SQ) {
 
-      uint8_t r, g, b;
-      int sx = (pixy.line.vectors[i].m_x0 + pixy.line.vectors[i].m_x1) / 2;
-      int sy = (pixy.line.vectors[i].m_y0 + pixy.line.vectors[i].m_y1) / 2;
-      
-      // NEW: Use getRGB with 'false' to get raw, un-saturated values
-      pixy.video.getRGB(sx, sy, &r, &g, &b); 
+      // Sample 3 points along the vector for stability
+      uint8_t r1,g1,b1;
+      uint8_t r2,g2,b2;
+      uint8_t r3,g3,b3;
 
-      HSV hsv = rgbToHsv(r, g, b);
+      int x0 = pixy.line.vectors[i].m_x0;
+      int y0 = pixy.line.vectors[i].m_y0;
+      int x1 = pixy.line.vectors[i].m_x1;
+      int y1 = pixy.line.vectors[i].m_y1;
 
-      // CHANGED: Range-based filtering instead of RGB distance
-      if (hsv.h >= TARGET_HUE_MIN && 
-          hsv.h <= TARGET_HUE_MAX && 
-          hsv.s >= MIN_SATURATION && 
+      int sx = (x0 + x1) / 2;
+      int sy = (y0 + y1) / 2;
+
+      pixy.video.getRGB(x0, y0, &r1, &g1, &b1);
+      pixy.video.getRGB(sx, sy, &r2, &g2, &b2);
+      pixy.video.getRGB(x1, y1, &r3, &g3, &b3);
+
+      // Average the 3 samples to reduce flicker
+      float r_avg = (r1 + r2 + r3) / 3.0f;
+      float g_avg = (g1 + g2 + g3) / 3.0f;
+      float b_avg = (b1 + b2 + b3) / 3.0f;
+
+      HSV hsv = rgbToHsv(r_avg, g_avg, b_avg);
+
+      // Optional debug — use when tuning thresholds
+      // Serial.print("H: "); Serial.print(hsv.h);
+      // Serial.print(" S: "); Serial.print(hsv.s);
+      // Serial.print(" V: "); Serial.println(hsv.v);
+
+      // Check if this vector falls inside our underwater blue range
+      if (hsv.h >= TARGET_HUE_MIN &&
+          hsv.h <= TARGET_HUE_MAX &&
+          hsv.s >= MIN_SATURATION &&
           hsv.v >= MIN_VALUE) {
 
-          best_idx = i;
-          break; 
+          // Keep the longest valid vector
+          if (lenSq > bestLen) {
+              bestLen = lenSq;
+              best_idx = i;
+          }
       }
     }
   }
 
+  // If we found a valid blue line
   if (best_idx != -1) {
 
-    int lineCenterX = 
-      (pixy.line.vectors[best_idx].m_x0 + 
+    int lineCenterX =
+      (pixy.line.vectors[best_idx].m_x0 +
        pixy.line.vectors[best_idx].m_x1) / 2;
 
-    if (lineCenterX < threshold) {
+    // Decide direction based on horizontal position
+    if (lineCenterX < threshold)
       currentDir = DIR_LEFT;
-    }
-    else if (lineCenterX > PIXY_MAX_X - threshold) {
+    else if (lineCenterX > PIXY_MAX_X - threshold)
       currentDir = DIR_RIGHT;
-    }
-    else {
+    else
       currentDir = DIR_STRAIGHT;
-    }
   }
 
-  if (currentDir == candidateDir) {
+  // Simple temporal smoothing
+  if (currentDir == candidateDir)
     consecutiveCount++;
-  }
   else {
     candidateDir = currentDir;
     consecutiveCount = 1;
   }
 
-  if (consecutiveCount >= REQUIRED_FRAMES && 
+  // Only commit if stable across required frames
+  if (consecutiveCount >= REQUIRED_FRAMES &&
       confirmedDir != candidateDir) {
 
     confirmedDir = candidateDir;
     signalDirection(confirmedDir);
   }
 
-  delay(10); 
+  delay(10);  // Small delay to prevent overloading serial + stabilize loop
 }

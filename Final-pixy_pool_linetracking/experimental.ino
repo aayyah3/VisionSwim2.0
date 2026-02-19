@@ -24,7 +24,7 @@ const float MIN_VALUE = 18.0;
 const long MIN_LINE_LENGTH_SQ = 150; 
 
 // Require stability across frames
-const int REQUIRED_FRAMES = 2;      
+const int REQUIRED_FRAMES = 5;      
 
 Pixy2 pixy;
 const int threshold = 20;  // Deadband around center

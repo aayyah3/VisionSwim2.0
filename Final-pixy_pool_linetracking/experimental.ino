@@ -1,8 +1,7 @@
 #include <Pixy2.h>
 #include <math.h>
-#include <limits.h>
 
-#define PIXY_MAX_X 319   // Pixy2 line tracking max X resolution
+#define PIXY_MAX_X 319   // Pixy2 line tracking width
 
 // PWM output pins (Nano compatible)
 #define TURN_LEFT_PIN 5
@@ -11,24 +10,24 @@
 #define GROUND_PIN_1 A1
 
 // ---- UNDERWATER HSV FILTER SETTINGS ----
-// Hue range widened slightly to tolerate blue/cyan shift in water
+// Wide enough to tolerate water tint, but not crazy wide
 const float TARGET_HUE_MIN = 170.0; 
 const float TARGET_HUE_MAX = 250.0;
 
-// Underwater colors look washed out, so allow lower saturation
+// Underwater colors are washed out
 const float MIN_SATURATION = 0.12; 
 
-// Pool bottoms can be dim — allow fairly low brightness
+// Pool bottoms can be dim
 const float MIN_VALUE = 18.0;     
 
-// Ignore tiny noise vectors (roughly 12px minimum length)
+// Ignore tiny noise vectors
 const long MIN_LINE_LENGTH_SQ = 150; 
 
-// Require direction to be stable for N frames before committing
+// Require stability across frames
 const int REQUIRED_FRAMES = 2;      
 
 Pixy2 pixy;
-const int threshold = 20;  // Deadband for center detection
+const int threshold = 20;  // Deadband around center
 
 // Direction states
 enum Direction { DIR_NONE, DIR_LEFT, DIR_RIGHT, DIR_STRAIGHT };
@@ -37,17 +36,16 @@ Direction candidateDir = DIR_NONE;
 Direction confirmedDir = DIR_NONE;
 int consecutiveCount = 0;
 
-// Simple HSV container
+// Simple HSV struct
 struct HSV { float h, s, v; };
 
 
 // Convert RGB (0–255) to HSV
-// We use float because Nano handles float fine, but avoid double
 HSV rgbToHsv(float r, float g, float b) {
 
     HSV out;
 
-    // Normalize to 0–1 range
+    // Normalize to 0–1
     r /= 255.0f; 
     g /= 255.0f; 
     b /= 255.0f; 
@@ -56,20 +54,17 @@ HSV rgbToHsv(float r, float g, float b) {
     float maxVal = max(r, max(g, b));
     float delta = maxVal - minVal;
 
-    // Brightness scaled to 0–100 for easier threshold tuning
+    // Brightness scaled 0–100
     out.v = maxVal * 100.0f; 
 
-    // If no brightness, no color information
     if (maxVal == 0.0f) { 
         out.s = 0.0f; 
         out.h = 0.0f; 
         return out; 
     }
 
-    // Saturation calculation
     out.s = (delta / maxVal); 
 
-    // Hue calculation depends on which channel is dominant
     if (delta == 0.0f) {
         out.h = 0.0f;
     }
@@ -89,7 +84,7 @@ HSV rgbToHsv(float r, float g, float b) {
 }
 
 
-// Send PWM signal indicating direction
+// Output direction via PWM
 void signalDirection(Direction dir) {
 
   if (dir == DIR_LEFT) {
@@ -122,14 +117,12 @@ void setup() {
   digitalWrite(GROUND_PIN_0, LOW);
   digitalWrite(GROUND_PIN_1, LOW);
 
-  // Slightly increased brightness for underwater clarity
   pixy.setCameraBrightness(60);
 }
 
 
 void loop() {
 
-  // If no line features detected this frame, skip quickly
   if (!pixy.line.getMainFeatures()) {
     delay(10);
     return;
@@ -137,24 +130,19 @@ void loop() {
 
   Direction currentDir = DIR_NONE;
   int best_idx = -1;
-  long bestLen = 0;  // We'll choose the longest valid blue vector
+  long bestLen = 0;
 
-  // Iterate over all detected vectors
+  // Loop through all detected vectors
   for (int i = 0; i < pixy.line.numVectors; i++) {
 
     int dx = pixy.line.vectors[i].m_x1 - pixy.line.vectors[i].m_x0;
     int dy = pixy.line.vectors[i].m_y1 - pixy.line.vectors[i].m_y0;
-
     long lenSq = (long)dx*dx + (long)dy*dy;
 
-    // Ignore tiny vectors (likely noise/reflections)
+    // Ignore short noise lines
     if (lenSq >= MIN_LINE_LENGTH_SQ) {
 
-      // Sample 3 points along the vector for stability
-      uint8_t r1,g1,b1;
-      uint8_t r2,g2,b2;
-      uint8_t r3,g3,b3;
-
+      // Sample midpoint of vector
       int x0 = pixy.line.vectors[i].m_x0;
       int y0 = pixy.line.vectors[i].m_y0;
       int x1 = pixy.line.vectors[i].m_x1;
@@ -163,22 +151,24 @@ void loop() {
       int sx = (x0 + x1) / 2;
       int sy = (y0 + y1) / 2;
 
-      pixy.video.getRGB(sx, sy, &r_avg, &g_avg, &b_avg);
+      // Properly declared RGB variables
+      uint8_t r, g, b;
+      pixy.video.getRGB(sx, sy, &r, &g, &b);
+
+      // Convert to float for HSV
+      float r_avg = r;
+      float g_avg = g;
+      float b_avg = b;
 
       HSV hsv = rgbToHsv(r_avg, g_avg, b_avg);
 
-      // Optional debug — use when tuning thresholds
-      // Serial.print("H: "); Serial.print(hsv.h);
-      // Serial.print(" S: "); Serial.print(hsv.s);
-      // Serial.print(" V: "); Serial.println(hsv.v);
-
-      // Check if this vector falls inside our underwater blue range
+      // Check if color falls in underwater blue range
       if (hsv.h >= TARGET_HUE_MIN &&
           hsv.h <= TARGET_HUE_MAX &&
           hsv.s >= MIN_SATURATION &&
           hsv.v >= MIN_VALUE) {
 
-          // Keep the longest valid vector
+          // Keep the longest valid line
           if (lenSq > bestLen) {
               bestLen = lenSq;
               best_idx = i;
@@ -186,17 +176,17 @@ void loop() {
       }
     }
   }
+
   if (best_idx == -1) {
     Serial.println("No valid line detected");
   }
-  // If we found a valid blue line
+
   if (best_idx != -1) {
 
     int lineCenterX =
       (pixy.line.vectors[best_idx].m_x0 +
        pixy.line.vectors[best_idx].m_x1) / 2;
 
-    // Decide direction based on horizontal position
     if (lineCenterX < threshold)
       currentDir = DIR_LEFT;
     else if (lineCenterX > PIXY_MAX_X - threshold)
@@ -205,7 +195,7 @@ void loop() {
       currentDir = DIR_STRAIGHT;
   }
 
-  // Simple temporal smoothing
+  // Frame-to-frame stability filter
   if (currentDir == candidateDir)
     consecutiveCount++;
   else {
@@ -213,7 +203,6 @@ void loop() {
     consecutiveCount = 1;
   }
 
-  // Only commit if stable across required frames
   if (consecutiveCount >= REQUIRED_FRAMES &&
       confirmedDir != candidateDir) {
 
@@ -221,5 +210,5 @@ void loop() {
     signalDirection(confirmedDir);
   }
 
-  delay(10);  // Small delay to prevent overloading serial + stabilize loop
+  delay(10);
 }

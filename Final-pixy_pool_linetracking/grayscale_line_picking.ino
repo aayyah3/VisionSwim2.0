@@ -61,7 +61,7 @@ int best_idx = -1;
 
 
 // STEP 1: Find a line that is "Long and Blue"
-long minDist = LONG_MAX;
+float minDist = FLT_MAX;
 
 for (int i = 0; i < pixy.line.numVectors; i++) {
 // Check Length First (Flowchart: Is vector long?)
@@ -80,8 +80,8 @@ pixy.video.getRGB(pixy.line.vectors[i].m_x0, pixy.line.vectors[i].m_y0, &r_st, &
 pixy.video.getRGB(pixy.line.vectors[i].m_x1, pixy.line.vectors[i].m_y1, &r_end, &g_end, &b_end);
 
 int r_avg = (r_mid + r_st + r_end)/3;
-int g_avg = (r_mid + r_st + r_end)/3;
-int b_avg = (r_mid + r_st + r_end)/3;
+int g_avg = (g_mid + g_st + g_end)/3;
+int b_avg = (b_mid + b_st + b_end)/3;
 
 Serial.println(
 String("Vector ") + i +
@@ -89,16 +89,31 @@ String("Vector ") + i +
 );        
 
 //convert to grayscale
-float gs_r = 0.299 * (float) r_avg;
-float gs_g = 0.587 * (float) g_avg;
-float gs_b = 0.114 * (float) b_avg;
+float gs_r = 0.299 * (float)r_avg;
+float gs_g = 0.587 * (float)g_avg;
+float gs_b = 0.114 * (float)b_avg;
 
-
-long dist = gs_r + gs_g + gs_b;
+float dist = gs_r + gs_g + gs_b;
 
 if (dist < minDist) {
 minDist = dist;
 best_idx = i;
+
+//print to check for grayscale
+int test_r, test_g, test_b;
+pixy.getResolution();
+uint16_t cx = pixy.frameWidth;
+uint16_t cy = pixy.frameHeight;
+pixy.video.getRGB(cx, cy, &test_r, &test_g, &test_b);
+
+float test_gs_r = 0.299 * (float)test_r;
+float test_gs_g = 0.587 * (float)test_g;
+float test_gs_b = 0.114 * (float)test_b;
+
+float center_gs = test_gs_r + test_gs_g + test_gs_b;
+Serial.print("Grayscale of center: ");
+Serial.println(center_gs);
+  
 }
 }
 }
@@ -106,8 +121,7 @@ best_idx = i;
 // STEP 2: Decide Direction (Flowchart: Check Position)
 if (best_idx != -1) {
 Serial.println(
-String("SELECTED VECTOR: ") + best_idx
-);
+String("SELECTED VECTOR: ") + best_idx);
 int lineCenterX = (pixy.line.vectors[best_idx].m_x0 + pixy.line.vectors[best_idx].m_x1) / 2;
 if (lineCenterX < threshold) currentDir = DIR_LEFT;
 else if (lineCenterX > PIXY_MAX_X - threshold) currentDir = DIR_RIGHT;

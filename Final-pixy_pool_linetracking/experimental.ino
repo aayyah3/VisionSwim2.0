@@ -193,7 +193,9 @@ void loop() {
       }
     }
   }
-
+  if (best_idx == -1) {
+    Serial.println("No valid line detected");
+  }
   // If we found a valid blue line
   if (best_idx != -1) {
 

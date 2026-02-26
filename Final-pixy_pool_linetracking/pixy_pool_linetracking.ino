@@ -1,111 +1,105 @@
-#include <Pixy2.h>
-#include <ZumoMotors.h>
-#include <limits.h>
+//
+// begin license header
+//
+// This file is part of Pixy CMUcam5 or "Pixy" for short
+//
+// All Pixy source code is provided under the terms of the
+// GNU General Public License v2 (http://www.gnu.org/licenses/gpl-2.0.html).
+// Those wishing to use Pixy source code, software and/or
+// technologies under different licensing terms should contact us at
+// cmucam@cs.cmu.edu. Such licensing terms are available for
+// all portions of the Pixy codebase presented here.
+//
+// end license header
+//
 
-// Max X coordinate for Pixy2 line tracking
+#include <Pixy2.h>
+//max x coordinate
 #define PIXY_MAX_X 78 
 
-// Hardware Pins
-#define TURN_LEFT_PIN A2
-#define TURN_RIGHT_PIN A3
-#define GROUND_PIN_0 A0
-#define GROUND_PIN_1 A1
-
-// Pool Lane Color Signature (Tune these!)
-const uint8_t POOL_R = 28;
-const uint8_t POOL_G = 71;
-const uint8_t POOL_B = 97;
-
-// Optimization Constants
-const int MIN_LINE_LENGTH_SQ = 400; // Vector must be ~20 pixels long (20^2)
-const int COLOR_THRESHOLD = 4000;   // Distance threshold for "Blue" check
-const int REQUIRED_FRAMES = 3;      // Reduced from 5 for faster response
+//Arduino pins that will be used to control motors or actuators for turning.
+#define TURN_LEFT_PIN A0 
+#define TURN_RIGHT_PIN A2
 
 Pixy2 pixy;
-int threshold = 20; 
+int threshold = 20; // A “dead zone” from the left or right side of the camera’s view.
+int Counter = 0;
+int Direction = -1; // straight = 0, left = 1, right = 2
+int consec_frames = 15;
 
-enum Direction { DIR_NONE, DIR_LEFT, DIR_RIGHT, DIR_STRAIGHT };
+void setup()
+{
+  Serial.begin(115200); //serial communication so the Arduino can print debug info to the computer
+  Serial.print("Starting...\n");
 
-// Tracking States
-Direction candidateDir = DIR_NONE;
-Direction confirmedDir = DIR_NONE;
-int consecutiveCount = 0;
-
-void signalDirection(Direction dir) {
-  // Logic remains the same: High on A2 for Left, A3 for Right
-  analogWrite(TURN_LEFT_PIN, (dir == DIR_LEFT) ? 255 : 0);
-  analogWrite(TURN_RIGHT_PIN, (dir == DIR_RIGHT) ? 255 : 0);
-  
-  if(dir == DIR_LEFT) Serial.println("LEFT");
-  else if(dir == DIR_RIGHT) Serial.println("RIGHT");
-  else if(dir == DIR_STRAIGHT) Serial.println("STRAIGHT");
-  else Serial.println("NO LINE");
+  pixy.init(); //Initializes the Pixy camera so it’s ready to detect lines.
+  // change to the line_tracking program.  Note, changeProg can use partial strings, so for example,
+  // you can change to the line_tracking program by calling changeProg("line") instead of the whole
+  // string changeProg("line_tracking")
+  Serial.println(pixy.changeProg("line")); //Tells the Pixy camera to switch to line tracking mode.
 }
 
-void setup() {
-  Serial.begin(115200);
-  pixy.init();
-  pixy.changeProg("line");
-  pinMode(TURN_LEFT_PIN, OUTPUT);
-  pinMode(TURN_RIGHT_PIN, OUTPUT);
-  analogWrite(GROUND_PIN_0, 0);
-  analogWrite(GROUND_PIN_1, 0);
-}
-
-void loop() {
-  pixy.line.getAllFeatures();
-  Direction currentDir = DIR_NONE;
-  int best_idx = -1;
-
-
-  // STEP 1: Find a line that is "Long and Blue"
-    long minDist = LONG_MAX;
-
-    for (int i = 0; i < pixy.line.numVectors; i++) {
-      // Check Length First (Flowchart: Is vector long?)
-      int dx = pixy.line.vectors[i].m_x1 - pixy.line.vectors[i].m_x0;
-      int dy = pixy.line.vectors[i].m_y1 - pixy.line.vectors[i].m_y0;
-      long lenSq = (long)dx*dx + (long)dy*dy;
-
-      if (lenSq >= MIN_LINE_LENGTH_SQ) {
-        // Check Color (Flowchart: Is vector blue?)
-        uint8_t r, g, b;
-        int sx = (pixy.line.vectors[i].m_x0 + pixy.line.vectors[i].m_x1) / 2;
-        int sy = (pixy.line.vectors[i].m_y0 + pixy.line.vectors[i].m_y1) / 2;
-        pixy.video.getRGB(sx, sy, &r, &g, &b);
-        
-        Serial.println(
-              String("Vector ") + i +
-              " RGB value: " + r + "," + g + "," + b + "|| m index: " + pixy.line.vectors[i].m_index
-            );        
-        long dist = pow(r-POOL_R, 2) + pow(g-POOL_G, 2) + pow(b-POOL_B, 2);
-
-        if (dist < minDist) {
-          minDist = dist;
-          best_idx = i;
-        }
+void loop()
+{
+//  pixy.changeProg("line");
+  pixy.line.getMainFeatures(); //Requests all the line vectors Pixy sees
+  int x_mid = (pixy.line.vectors->m_x1 + pixy.line.vectors->m_x0)/2
+  if (pixy.line.numVectors){ 
+    Serial.println(pixy.line.numVectors);
+    
+    if (x_mid < threshold) {
+      //turn left
+      if(Direction == 1)
+        Counter++;
+      else
+      {
+        Direction = 1;
+        Counter = 0;
       }
+      Serial.println("Turn Left"); 
+    } else if (x_mid > PIXY_MAX_X - threshold) {
+      //turn right
+      if(Direction == 2)
+        Counter++;
+      else
+      {
+        Direction = 2;
+        Counter = 0;
+      }
+      Serial.println("Turn Right");
+    } else {
+      //go straight
+      Direction = 0;
+      Counter = 0;
+      analogWrite(TURN_LEFT_PIN, 0);
+      analogWrite(TURN_RIGHT_PIN, 0);
+      Serial.println("Go Straight");
     }
-
-  // STEP 2: Decide Direction (Flowchart: Check Position)
-  if (best_idx != -1) {
-    Serial.println(
-              String("SELECTED VECTOR: ") + i
-            );
-    int lineCenterX = (pixy.line.vectors[best_idx].m_x0 + pixy.line.vectors[best_idx].m_x1) / 2;
-    if (lineCenterX < threshold) currentDir = DIR_LEFT;
-    else if (lineCenterX > PIXY_MAX_X - threshold) currentDir = DIR_RIGHT;
-    else currentDir = DIR_STRAIGHT;
+    
   }
-
-  // STEP 3: Frame Confirmation
-  if (currentDir == candidateDir) consecutiveCount++;
-  else { candidateDir = currentDir; consecutiveCount = 1; }
-
-  if (consecutiveCount >= REQUIRED_FRAMES && confirmedDir != candidateDir) {
-    confirmedDir = candidateDir;
-    signalDirection(confirmedDir);
+  //nothing detected
+  else
+  {
+    Direction = 0;
+    Counter = 0;
+    analogWrite(TURN_LEFT_PIN, 0);
+    analogWrite(TURN_RIGHT_PIN, 0);
+    Serial.println("No vector detected");
   }
-
-  delay(50); // Increased frequency for better tracking responsiveness
+    
+  if(Counter >= consec_frames)
+  {
+    Counter = consec_frames; // so Counter doesn't overflow
+    if(Direction == 2)
+    {
+      analogWrite(TURN_LEFT_PIN, 255);
+      analogWrite(TURN_RIGHT_PIN, 0);
+    }
+    else if(Direction == 1)
+    {
+      analogWrite(TURN_LEFT_PIN, 0);
+      analogWrite(TURN_RIGHT_PIN, 255);
+    }
+  }
+  
 }
